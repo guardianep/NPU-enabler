@@ -220,6 +220,28 @@ python vlm_backend.py C:/Temp/test_screen.png --max_tokens 100
 
 You should see `Device: DirectML`. Measured on an RTX 4060 Laptop GPU (448x448 input, 100 tokens): about 12.4 s to first token and about 24 tokens/s decode. The first load of the model takes a while. The same model on CPU gave an identical description for the same image. During loading the NVIDIA GPU showed about 4 GB of memory in use, so it is using the RTX card rather than the integrated Radeon.
 
+## Step 8: OCR baseline and NPU wake test
+
+OCR baseline (CPU), in its own env so it cannot disturb the DirectML one:
+
+```
+conda create -n ocr-test python=3.11 -y
+conda activate ocr-test
+pip install rapidocr-onnxruntime pillow pyautogui --no-input --keyring-provider disabled
+python ocr_test.py C:/Temp/test_screen.png
+```
+
+Measured on the 8845HS CPU, 1918x1079 desktop screenshot: 142 text lines read in 3.8 s (detection 1.2 s, classifier 0.14 s, recognition 2.3 s), model load 0.7 s. RapidOCR ships three ONNX models: `ch_PP-OCRv4_det_infer.onnx` (4.7 MB), `ch_PP-OCRv4_rec_infer.onnx` (10.9 MB) and `ch_ppocr_mobile_v2.0_cls_infer.onnx` (0.6 MB). The detection model is a CNN and the only plausible NPU candidate after INT8 quantization. The recognition model probably is not (it likely uses attention layers); unverified.
+
+Waking the NPU: `xrt-smi validate` is the one thing that reliably does it on Phoenix. Open Task Manager, Performance, NPU 0 and run it a few times in a row:
+
+```
+$XRT = "C:\Users\<you>\Downloads\NPU_RAI_280_WHQL\npu_mcdm_stack_prod\xrt-smi.exe"
+1..5 | ForEach-Object { & $XRT validate -d 0007:00:01.1 }
+```
+
+Running a real model (including the OCR detector) on the NPU is blocked: none of the RyzenAI 1.8.0 packages contain a Phoenix xclbin (only a Strix `base.xclbin` appears inside `voe-1.8.0`), and quicktest's expected `xclbins\phoenix\4x4.xclbin` is absent. A release that still ships it (for example 1.5 or 1.6, unverified) is the next thing to try.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
