@@ -55,7 +55,8 @@ AMD's example code for Windows ML lives in the RyzenAI-SW GitHub repository.
 - AMD Ryzen 9 8845HS (Phoenix, NPU shows up as "NPU Phoenix")
 - NVIDIA RTX 4060 Laptop GPU
 - Windows 11 (10.0.26200)
-- 32 GB RAM
+- About 15 GB usable RAM (Task Manager shows 15.2 GB total). Phi-4-Multimodal needs roughly 8 GB at peak, so close heavy apps before running it.
+- NPU 0 visible in Task Manager with driver 32.0.203.280
 
 ## Why the NPU is not running the model
 
