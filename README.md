@@ -14,6 +14,16 @@ Get an AMD Ryzen AI NPU (Phoenix / Ryzen 8000 series) validated on Windows, then
 
 If you only want to confirm your NPU is alive, do Steps 1 and 2 and stop there.
 
+## Official AMD docs (read these for installing the software)
+
+- Windows ML on Ryzen AI: https://ryzenai.docs.amd.com/projects/WinML/en/latest/
+
+This is AMD's documentation for running your own ONNX models on the NPU through Microsoft's Windows ML runtime. Windows downloads and registers the VitisAI execution provider on demand, and you pick CPU, GPU or NPU by policy. Its sections include Installation (prerequisites and setup), VitisAI EP Model Support, Model Deployment, Model Conversion and Quantization, Execution Providers, Troubleshooting and FAQ. Check its Installation and VitisAI EP Model Support pages for which processors and models are supported before assuming your chip will work. The landing page itself does not list supported processors.
+
+AMD also has a separate Ryzen AI flow built on onnxruntime-genai with an NPU only path. That is the stack this repo uses today (RyzenAI 1.8.0 plus `vlm_run.py`).
+
+AMD's example code for Windows ML lives in the RyzenAI-SW GitHub repository.
+
 ## Tested hardware
 
 - AMD Ryzen 9 8845HS (Phoenix, NPU shows up as "NPU Phoenix")
