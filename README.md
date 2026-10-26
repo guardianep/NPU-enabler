@@ -36,6 +36,16 @@ What those pages say (checked 2026-10-26):
 - Models: CNN and Transformer models (float with automatic BF16 conversion, or QDQ quantized) compile for the NPU through the VitisAI EP. LLMs are via Foundry Local with pre-compiled models, or custom models through an Olive recipe or the Ryzen AI OGA workflow.
 - Not stated anywhere I could find: whether Phoenix or Hawk Point can run LLMs or VLMs on the NPU. The separate LLM page still lists NPU only and Hybrid LLM modes for Ryzen AI 300 only. Treat Phi-4-Multimodal on a Phoenix NPU as unconfirmed.
 
+### Windows ML ResNet test on Phoenix (2026-10-26)
+
+Steps that worked: install the Windows App SDK, clone `amd/RyzenAI-SW`, `conda create -n winml_resnet python==3.12`, then in `WinML/CNN/ResNet` run `pip install -r requirements.txt --no-input --keyring-provider disabled`. Notes from doing it:
+
+- The requirements file uses the public ORT-Nightly feed, which needs no login. If pip prompts for credentials, do not type any: a saved wrong login makes every request return 401. Use the flags above.
+- Pin `wasdk-Microsoft.Windows.AI.MachineLearning==2.3.0` and `wasdk-Microsoft.Windows.ApplicationModel.DynamicDependency.Bootstrap==2.3.0` so they match the documented runtime. The 2.3.2.dev10 packages pip picks by default demand a newer Windows App Runtime and fail with "Package dependency criteria could not be resolved".
+- If the Windows App Runtime is missing: `curl -L -o windowsappruntimeinstall-x64.exe "https://aka.ms/windowsappsdk/2.3/2.3.1/windowsappruntimeinstall-x64.exe"` then `.\windowsappruntimeinstall-x64.exe --quiet`.
+
+Result: `run_model.py --ep_policy NPU` classified the dog image correctly, but it ran on `CPUExecutionProvider`, not the NPU. `winml_probe.py` in this repo shows why: Windows ML offered only `MIGraphXExecutionProvider`, `NvTensorRTRTXExecutionProvider` and `WebGpuExecutionProvider`. There was no `VitisAIExecutionProvider`, and onnxruntime listed no NPU device. Onnxruntime did list two `DmlExecutionProvider` GPU devices. So on this Phoenix machine the Windows ML route does not currently expose the NPU even though `xrt-smi validate` passes. The cause is not confirmed.
+
 AMD also has a separate Ryzen AI flow built on onnxruntime-genai with an NPU only path. That is the stack this repo uses today (RyzenAI 1.8.0 plus `vlm_run.py`).
 
 AMD's example code for Windows ML lives in the RyzenAI-SW GitHub repository.
