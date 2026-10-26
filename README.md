@@ -27,6 +27,26 @@ AMD's Ryzen AI documentation lists NPU only and Hybrid LLM execution as supporte
 
 The Phi-4-Multimodal ONNX files from Microsoft (`gpu/gpu-int4-rtn-block-32`) are generic builds. Their `genai_config.json` has an empty `provider_options`, so they load on CPU. Pointing them at the VitisAI execution provider initializes the provider, then the process exits without output because the model was never compiled for the NPU.
 
+## Step 0: Install conda first (do this before any AMD installer)
+
+AMD's Ryzen AI installer and driver packages expect `conda` to be reachable from the command line. If it is not on PATH, the AMD installs fail with errors. Set conda up first.
+
+1. Download Miniconda or Miniforge (Anaconda also works) for Windows.
+2. Run the installer. When it asks about PATH, TICK the option to add conda to your PATH environment variable. The Anaconda and Miniconda installers label it "not recommended", but you need it here.
+3. Close every terminal, open a new one, and verify:
+
+```
+conda --version
+```
+
+If that prints a version, you are good. If it says conda is not recognized, you skipped the PATH option. Either reinstall with it ticked, or add these to your user PATH manually (adjust for your install folder and type) and reopen the terminal:
+
+```
+C:\Users\<you>\miniconda3
+C:\Users\<you>\miniconda3\Scripts
+C:\Users\<you>\miniconda3\condabin
+```
+
 ## Step 1: Install the NPU driver
 
 1. Download the AMD NPU driver package (the one named like `NPU_RAI_..._WHQL`) from AMD's Ryzen AI software download page and extract it.
