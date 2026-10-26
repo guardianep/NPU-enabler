@@ -18,7 +18,23 @@ If you only want to confirm your NPU is alive, do Steps 1 and 2 and stop there.
 
 - Windows ML on Ryzen AI: https://ryzenai.docs.amd.com/projects/WinML/en/latest/
 
-This is AMD's documentation for running your own ONNX models on the NPU through Microsoft's Windows ML runtime. Windows downloads and registers the VitisAI execution provider on demand, and you pick CPU, GPU or NPU by policy. Its sections include Installation (prerequisites and setup), VitisAI EP Model Support, Model Deployment, Model Conversion and Quantization, Execution Providers, Troubleshooting and FAQ. Check its Installation and VitisAI EP Model Support pages for which processors and models are supported before assuming your chip will work. The landing page itself does not list supported processors.
+This is AMD's documentation for running your own ONNX models on the NPU through Microsoft's Windows ML runtime. Windows downloads and registers the VitisAI execution provider on demand, and you pick CPU, GPU or NPU by policy. Its sections include Installation (prerequisites and setup), VitisAI EP Model Support, Model Deployment, Model Conversion and Quantization, Execution Providers, Troubleshooting and FAQ. Key pages:
+
+- Installation: https://ryzenai.docs.amd.com/projects/WinML/en/latest/installation.html
+- VitisAI EP Model Support: https://ryzenai.docs.amd.com/projects/WinML/en/latest/model_support.html
+- Release notes (supported processors): https://ryzenai.docs.amd.com/projects/WinML/en/stable/relnotes.html
+- Troubleshooting: https://ryzenai.docs.amd.com/projects/WinML/en/latest/troubleshooting.html
+- FAQ: https://ryzenai.docs.amd.com/projects/WinML/en/latest/faq.html
+- Examples: https://github.com/amd/RyzenAI-SW/tree/main/WinML
+
+What those pages say (checked 2026-10-26):
+
+- Processors: the 1.8 release notes say Ryzen AI 1.8 Software "supports AMD processors codenamed Phoenix, Hawk Point, Strix, Strix Halo, and Krackan Point", covering Ryzen 7000, 8000 and AI 300 series. So Phoenix and Hawk Point (Ryzen 8845HS class) are supported by the software in general.
+- Driver: NPU driver 32.0.203.280 or newer. The `NPU_RAI_280_WHQL` package used above matches that number.
+- OS: Windows 11 24H2 (build 26100) or later.
+- Other prerequisites: Windows App SDK (Windows ML ships inside it), Python 3.10 to 3.12 for Python samples, Visual Studio 2022 with the C++ desktop workload for C++ samples. Conda is only used to create a test env (`winml_env`, Python 3.11) in the verification step.
+- Models: CNN and Transformer models (float with automatic BF16 conversion, or QDQ quantized) compile for the NPU through the VitisAI EP. LLMs are via Foundry Local with pre-compiled models, or custom models through an Olive recipe or the Ryzen AI OGA workflow.
+- Not stated anywhere I could find: whether Phoenix or Hawk Point can run LLMs or VLMs on the NPU. The separate LLM page still lists NPU only and Hybrid LLM modes for Ryzen AI 300 only. Treat Phi-4-Multimodal on a Phoenix NPU as unconfirmed.
 
 AMD also has a separate Ryzen AI flow built on onnxruntime-genai with an NPU only path. That is the stack this repo uses today (RyzenAI 1.8.0 plus `vlm_run.py`).
 
