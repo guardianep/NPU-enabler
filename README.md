@@ -9,7 +9,7 @@ Get an AMD Ryzen AI NPU (Phoenix / Ryzen 8000 series) validated on Windows, then
 | NPU driver installed and passing `xrt-smi validate` | Works |
 | Phi-4-Multimodal vision inference | Works on CPU |
 | Phi-4-Multimodal on the NPU | Not possible on Phoenix/Hawk Point: AMD supports only CNN INT8 there. See "Why the NPU is not running the model" |
-| Phi-4-Multimodal on GPU via DirectML | Not working in the RyzenAI conda env. Needs a separate env (untested) |
+| Phi-4-Multimodal on GPU via DirectML | Works in a separate conda env (`phi4-dml`, see Step 7): about 24 tokens/s decode and about 12 s to first token at 448x448 on an RTX 4060 laptop GPU |
 | Screen agent loop, Ollama, pyautogui actions | Not built yet |
 
 If you only want to confirm your NPU is alive, do Steps 1 and 2 and stop there.
@@ -190,7 +190,9 @@ python vlm_backend.py C:/Temp/test_screen.png --provider cpu
 python vlm_backend.py --screenshot --provider cpu
 ```
 
-Always pass `--provider cpu` for now. The default (`auto`) picks VitisAI whenever `onnxruntime_vitisai_ep.dll` exists, and with the generic model that run initializes and then exits silently with no description.
+In the RyzenAI env pass `--provider cpu`. In the `phi4-dml` env (Step 7) the default `auto` picks DirectML on the GPU. `auto` never picks the NPU, because Phi-4-Multimodal cannot run there (see "Why the NPU is not running the model"). Forcing `--provider vitisai` with the generic model initializes the provider and then exits silently with no description.
+
+Each run prints `Stats: {...}` with token count, time to first token (including image processing) and decode tokens per second.
 
 As a library:
 
@@ -199,6 +201,24 @@ from vlm_backend import VLMBackend
 vlm = VLMBackend("C:/Users/<you>/phi-4-mm-onnx/gpu/gpu-int4-rtn-block-32", provider="cpu")
 print(vlm.describe(screenshot=True))
 ```
+
+## Step 7: Run on the GPU with DirectML (recommended)
+
+The RyzenAI env rejects generic DirectML, so use a separate env with the DirectML build of onnxruntime-genai:
+
+```
+conda create -n phi4-dml python=3.11 -y
+conda activate phi4-dml
+pip install onnxruntime-genai-directml pillow numpy pyautogui --no-input --keyring-provider disabled
+```
+
+Tested versions: onnxruntime-genai-directml 0.13.1 with onnxruntime-directml 1.24.4. Then:
+
+```
+python vlm_backend.py C:/Temp/test_screen.png --max_tokens 100
+```
+
+You should see `Device: DirectML`. Measured on an RTX 4060 Laptop GPU (448x448 input, 100 tokens): about 12.4 s to first token and about 24 tokens/s decode. The first load of the model takes a while. The same model on CPU gave an identical description for the same image. During loading the NVIDIA GPU showed about 4 GB of memory in use, so it is using the RTX card rather than the integrated Radeon.
 
 ## Troubleshooting
 
@@ -216,9 +236,10 @@ print(vlm.describe(screenshot=True))
 - [x] NPU driver validated with xrt-smi
 - [x] Phi-4-Multimodal inference on CPU
 - [x] Provider wrapper with CPU fallback
-- [ ] Make `auto` default to CPU unless a VitisAI compiled model is detected
-- [ ] DirectML GPU inference in a separate conda env
+- [x] `auto` no longer selects the NPU; it picks DirectML when available, else CPU
+- [x] DirectML GPU inference in a separate conda env (`phi4-dml`)
+- [ ] OpenAI compatible /v1/chat/completions wrapper (FastAPI) so tools like OmniRoute can use the local vision model
 - [ ] Screen capture loop
 - [ ] Ollama action LLM
 - [ ] pyautogui executor
-- [ ] NPU inference, pending an NPU compiled Phi-4-MM or another route for Phoenix
+- [ ] NPU for small INT8 CNN helpers (UI element detector, OCR detection) once the Phoenix `4x4.xclbin` is installed. The NPU cannot run Phi-4-Multimodal itself.

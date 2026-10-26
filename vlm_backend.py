@@ -1,9 +1,9 @@
 # vlm_backend.py -- Hardware-aware VLM loader for Phi-4-Multimodal.
 #
 # Auto-detects best execution provider:
-#   1. NPU (VitisAI) if DLL present
-#   2. DirectML (GPU) if onnxruntime-genai-directml installed
-#   3. CPU fallback
+#   1. DirectML (GPU) if onnxruntime-genai-directml installed (conda env phi4-dml)
+#   2. CPU fallback
+# NPU (VitisAI) is never auto selected, see README. Force it with --provider vitisai.
 #
 # CLI usage:
 #   python vlm_backend.py C:/Temp/screen.png
@@ -13,6 +13,7 @@
 
 import os
 import sys
+import time
 import argparse
 import tempfile
 import importlib.util
@@ -31,26 +32,19 @@ from PIL import Image
 VITISAI_DLL = Path("C:/Program Files/RyzenAI/1.8.0/deployment/onnxruntime_vitisai_ep.dll")
 
 
-def _npu_available():
-    return VITISAI_DLL.exists()
-
-
 def _dml_available():
+    # True when the DirectML build of onnxruntime-genai is installed in this env.
     try:
-        spec = importlib.util.find_spec("onnxruntime_genai")
-        if spec is None:
-            return False
-        og_path = Path(spec.origin).parent
-        dml_dlls = list(og_path.glob("*DirectML*")) + list(og_path.glob("*directml*"))
-        return len(dml_dlls) > 0
+        from importlib import metadata
+        metadata.version("onnxruntime-genai-directml")
+        return True
     except Exception:
         return False
 
 
 def detect_provider():
-    if _npu_available():
-        print("[vlm_backend] NPU (VitisAI) DLL found -- using NPU")
-        return "vitisai"
+    # NPU is never auto selected: on Phoenix/Hawk Point AMD supports only CNN INT8,
+    # so Phi-4-Multimodal cannot run there. Use --provider vitisai to force it.
     if _dml_available():
         print("[vlm_backend] DirectML found -- using GPU")
         return "dml"
@@ -130,6 +124,7 @@ class VLMBackend:
 
         proc_path = prepare_image(raw_path, self.image_size) if resize else raw_path
 
+        t_start = time.time()
         images = og.Images.open(proc_path)
         inputs = self.processor(self._build_prompt(prompt), images=images)
 
@@ -142,12 +137,24 @@ class VLMBackend:
         stream = self.processor.create_stream()
         chunks = []
         count = 0
+        t_first = None
 
         while not generator.is_done() and count < self.max_tokens:
             generator.generate_next_token()
+            if t_first is None:
+                t_first = time.time()
             token = generator.get_next_tokens()[0]
             chunks.append(stream.decode(token))
             count += 1
+
+        t_end = time.time()
+        ttft = (t_first - t_start) if t_first else 0.0
+        decode_time = (t_end - t_first) if t_first else 0.0
+        self.last_stats = {
+            "tokens": count,
+            "ttft_s": round(ttft, 2),
+            "decode_tps": round((count - 1) / decode_time, 2) if decode_time > 0 and count > 1 else 0.0,
+        }
 
         del generator
 
@@ -193,3 +200,4 @@ if __name__ == "__main__":
         screenshot=args.screenshot,
     )
     print(f"\nResult:\n{result}")
+    print(f"\nStats: {vlm.last_stats}")
