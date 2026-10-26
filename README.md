@@ -1,63 +1,159 @@
-# screen-agent
+# NPU-enabler
 
-A hardware-aware screen agent that captures the screen, describes it using a vision model (Phi-4-Multimodal), and routes decisions to a text LLM for action execution.
+Get an AMD Ryzen AI NPU (Phoenix / Ryzen 8000 series) validated on Windows, then run Phi-4-Multimodal screen description through AMD's onnxruntime-genai stack. The long term goal is a local screen agent: capture the screen, describe it with a vision model, let a text LLM (Ollama) decide an action, and execute it with pyautogui.
 
-## Hardware target
+## Honest status
 
-- AMD Ryzen 9 8845HS (Phoenix, Ryzen AI 8000 series)
+| Piece | Status |
+|---|---|
+| NPU driver installed and passing `xrt-smi validate` | Works |
+| Phi-4-Multimodal vision inference | Works on CPU |
+| Phi-4-Multimodal on the NPU | Not working. See "Why the NPU is not running the model" |
+| Phi-4-Multimodal on GPU via DirectML | Not working in the RyzenAI conda env. Needs a separate env (untested) |
+| Screen agent loop, Ollama, pyautogui actions | Not built yet |
+
+If you only want to confirm your NPU is alive, do Steps 1 and 2 and stop there.
+
+## Tested hardware
+
+- AMD Ryzen 9 8845HS (Phoenix, NPU shows up as "NPU Phoenix")
 - NVIDIA RTX 4060 Laptop GPU
-- AMD NPU Phoenix (AIE2, 16 TOPS) -- driver validated, awaiting AMD NPU model support
-- 32GB RAM
+- Windows 11 (10.0.26200)
+- 32 GB RAM
 
-## Stack
+## Why the NPU is not running the model
 
-- Vision: Microsoft Phi-4-Multimodal-Instruct (ONNX, int4)
-- Runtime: onnxruntime-genai via AMD RyzenAI 1.8.0
-- Execution: CPU (current) / DirectML GPU (next) / NPU VitisAI (when AMD releases NPU model)
-- Action LLM: Ollama (local)
-- Screen capture: pyautogui
+AMD's Ryzen AI documentation lists NPU only and Hybrid LLM execution as supported on Ryzen AI 300 series. Ryzen AI 7000 and 8000 series are listed as GPU/CPU only for LLMs. So on Phoenix the NPU driver and runtime work, but AMD does not ship NPU compiled LLM or VLM models for it.
 
-## Setup
+The Phi-4-Multimodal ONNX files from Microsoft (`gpu/gpu-int4-rtn-block-32`) are generic builds. Their `genai_config.json` has an empty `provider_options`, so they load on CPU. Pointing them at the VitisAI execution provider initializes the provider, then the process exits without output because the model was never compiled for the NPU.
+
+## Step 1: Install the NPU driver
+
+1. Download the AMD NPU driver package (the one named like `NPU_RAI_..._WHQL`) from AMD's Ryzen AI software download page and extract it.
+2. Run the installer inside it, or install the driver from Device Manager.
+3. Open Device Manager and confirm an NPU device is present under Neural processors or System devices.
+
+## Step 2: NPU smoke test
+
+`xrt-smi` is NOT on PATH after install. Call it by its full path from wherever you extracted the driver package. Example:
+
+```powershell
+$XRT = "C:\Users\<you>\Downloads\NPU_RAI_280_WHQL\npu_mcdm_stack_prod\xrt-smi.exe"
+
+# 1. Find your device id (look for the NPU line, format like 0007:00:01.1)
+& $XRT examine
+
+# 2. Run the smoke test against that id
+& $XRT validate -d 0007:00:01.1
+```
+
+Expected output:
+
+```
+Platform              : NPU Phoenix
+Power Mode            : Performance
+Test 1 : latency      Average latency: 83.6 us      [PASSED]
+Test 2 : throughput   Average throughput: 33670.5 ops  [PASSED]
+```
+
+What it does: `validate` runs two small synthetic workloads on the NPU, a latency test (dispatch one job, wait for the result) and a throughput test (many jobs back to back). It does not run a neural network. A pass means the driver, firmware and hardware path work. Your numbers will differ.
+
+Add `--verbose` to see more detail. Use `examine --report all` for full device info.
+
+## Step 3: Install Ryzen AI Software 1.8.0
+
+1. Install AMD Ryzen AI Software 1.8.0. Default location is `C:\Program Files\RyzenAI\1.8.0`.
+2. It creates a conda env named `ryzen-ai-1.8.0` (Python 3.12). Activate it:
 
 ```
 conda activate ryzen-ai-1.8.0
+```
+
+3. Install extras used by this repo:
+
+```
 pip install pillow pyautogui
 ```
 
-Model path (not included in repo -- too large):
+This env ships a custom onnxruntime-genai build that targets NPU and CPU. It rejects generic DirectML.
+
+## Step 4: Download the model
+
 ```
-C:/Users/ehps1/phi-4-mm-onnx/gpu/gpu-int4-rtn-block-32
+pip install huggingface_hub
+huggingface-cli download microsoft/Phi-4-multimodal-instruct-onnx --include "gpu/gpu-int4-rtn-block-32/*" --local-dir C:\Users\<you>\phi-4-mm-onnx
 ```
 
-## Usage
+About 8 GB, 29 files. Model weights are not stored in this repo.
 
-```bash
-# Describe an image file
-python vlm_backend.py C:/Temp/screen.png --provider cpu
+## Step 5: Run AMD's reference script on CPU
 
-# Take a live screenshot and describe it
+AMD ships `vlm_run.py`:
+
+```
+python "C:\Program Files\RyzenAI\1.8.0\LLM\example\vlm\vlm_run.py" ^
+  -m "C:\Users\<you>\phi-4-mm-onnx\gpu\gpu-int4-rtn-block-32" ^
+  -i C:\Temp\test_screen.png ^
+  -p "Describe what you see on this screen in detail." ^
+  --image_size 448 448 --max_tokens 150 -e cpu
+```
+
+Notes:
+
+- Keep the image in a plain ASCII path like `C:\Temp`. A folder with accented characters (for example OneDrive `Imágenes`) gets mangled and gives `FileNotFoundError: Image not found`.
+- Smaller images are much faster. AMD's own benchmark shows roughly 539 image tokens at 448x448 and 2619 at 1024x1024, with first token latency growing from seconds to tens of seconds.
+- `-e` accepts `cpu`, `dml`, `follow_config` (default).
+
+How provider selection works in that script:
+
+```python
+config = og.Config(model_path)       # reads genai_config.json
+config.clear_providers()             # drop whatever the config specified
+config.append_provider("dml")        # add a provider (skipped for cpu)
+model = og.Model(config)
+```
+
+## Step 6: Use vlm_backend.py from this repo
+
+`vlm_backend.py` wraps the same calls in a small class with provider fallback and an optional live screenshot.
+
+```
+# describe an image
+python vlm_backend.py C:/Temp/test_screen.png --provider cpu
+
+# capture the screen and describe it
 python vlm_backend.py --screenshot --provider cpu
-
-# Use GPU via DirectML (requires phi4-dml conda env)
-python vlm_backend.py --screenshot --provider dml
-
-# Force NPU (requires AMD NPU-compiled model variant)
-python vlm_backend.py --screenshot --provider vitisai
 ```
 
-## Provider auto-detection order
+Always pass `--provider cpu` for now. The default (`auto`) picks VitisAI whenever `onnxruntime_vitisai_ep.dll` exists, and with the generic model that run initializes and then exits silently with no description.
 
-1. NPU (VitisAI) -- if `onnxruntime_vitisai_ep.dll` found in RyzenAI deployment
-2. DirectML (GPU) -- if `onnxruntime-genai-directml` installed
-3. CPU -- always available fallback
+As a library:
+
+```python
+from vlm_backend import VLMBackend
+vlm = VLMBackend("C:/Users/<you>/phi-4-mm-onnx/gpu/gpu-int4-rtn-block-32", provider="cpu")
+print(vlm.describe(screenshot=True))
+```
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `xrt-smi is not recognized` | Not on PATH, and RyzenAI 1.8.0 does not bundle it | Call it by full path from the extracted NPU driver package |
+| `FileNotFoundError: Image not found` with a `?` in the path | Accented characters in the folder name | Copy the image to `C:\Temp` |
+| `SyntaxError: (unicode error) 'unicodeescape'` | Windows path like `C:\Users` inside a normal Python string or docstring | Use forward slashes or raw strings |
+| `RuntimeError: This session cannot use graph capture ... DmlExecutionProvider` | RyzenAI conda env's onnxruntime-genai has no generic DirectML support | Use a separate env with `onnxruntime-genai-directml` |
+| Run prints VitisAI log lines then returns to the prompt with no output | VitisAI EP selected but the model is not NPU compiled | Use `--provider cpu` |
+| `gh auth login` fails with connection refused | Network blocks github.com | Set `$env:HTTPS_PROXY` and `$env:HTTP_PROXY` for that terminal session only |
 
 ## Roadmap
 
-- [x] vlm_backend.py with provider auto-detection and CPU fallback
-- [ ] FastAPI wrapper exposing OpenAI-compatible /v1/chat/completions
-- [ ] Screen capture loop feeding frames to VLM
-- [ ] Ollama integration for action decision LLM
-- [ ] pyautogui action executor (click, type, scroll)
-- [ ] Full screen agent pipeline
-- [ ] DirectML GPU inference (phi4-dml env)
-- [ ] NPU inference (pending AMD Phi-4-MM NPU model release)
+- [x] NPU driver validated with xrt-smi
+- [x] Phi-4-Multimodal inference on CPU
+- [x] Provider wrapper with CPU fallback
+- [ ] Make `auto` default to CPU unless a VitisAI compiled model is detected
+- [ ] DirectML GPU inference in a separate conda env
+- [ ] Screen capture loop
+- [ ] Ollama action LLM
+- [ ] pyautogui executor
+- [ ] NPU inference, pending an NPU compiled Phi-4-MM or another route for Phoenix
