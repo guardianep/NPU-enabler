@@ -8,7 +8,7 @@ Get an AMD Ryzen AI NPU (Phoenix / Ryzen 8000 series) validated on Windows, then
 |---|---|
 | NPU driver installed and passing `xrt-smi validate` | Works |
 | Phi-4-Multimodal vision inference | Works on CPU |
-| Phi-4-Multimodal on the NPU | Not working. See "Why the NPU is not running the model" |
+| Phi-4-Multimodal on the NPU | Not possible on Phoenix/Hawk Point: AMD supports only CNN INT8 there. See "Why the NPU is not running the model" |
 | Phi-4-Multimodal on GPU via DirectML | Not working in the RyzenAI conda env. Needs a separate env (untested) |
 | Screen agent loop, Ollama, pyautogui actions | Not built yet |
 
@@ -61,6 +61,14 @@ AMD's example code for Windows ML lives in the RyzenAI-SW GitHub repository.
 ## Why the NPU is not running the model
 
 AMD's Ryzen AI documentation lists NPU only and Hybrid LLM execution as supported on Ryzen AI 300 series. Ryzen AI 7000 and 8000 series are listed as GPU/CPU only for LLMs. So on Phoenix the NPU driver and runtime work, but AMD does not ship NPU compiled LLM or VLM models for it.
+
+The Ryzen AI 1.8 release notes (https://ryzenai.docs.amd.com/en/latest/relnotes.html) say it directly: "PHX/HPT supports only CNN INT8. CNN BF16, NLP BF16, and LLM (OGA) are not supported on PHX/HPT." So Phi-4-Multimodal cannot run on a Phoenix or Hawk Point NPU with this software, no matter how the model is exported. What the Phoenix NPU can run is small INT8 convolutional networks (image classifiers, detectors, OCR style models). Also from the release notes: PHX/HPT models must pass the `xclbin` provider option and `target` set to `X1`, and `4x4.xclbin` replaced the old `1x4.xclbin`.
+
+### quicktest result on Phoenix (2026-10-26)
+
+AMD's `quicktest/quicktest.py` has a `PHX/HPT` branch that points at `voe-4.0-win_amd64\xclbins\phoenix\4x4.xclbin`. On this machine that folder does not exist: `voe-4.0-win_amd64` contains only `vaip_config.json`, and no `.xclbin` exists anywhere under `C:\Program Files\RyzenAI` or the conda env. The script still printed `Test Finished`, but with four `Failed to open xclbin` errors and without the "Actually running on NPU" line AMD's docs describe for a good run, so it did not run on the NPU. The current install docs also say quicktest "is expected to work for Strix (STX) or newer devices".
+
+The driver does ship xclbins in `C:\Windows\System32\AMD`. Pointing `npu_quicktest.py` at `4x4_3.5.0.0-2352.xclbin` from there fails immediately with `Cannot find or create target with fingerprint=0x080002050018eec1`, meaning the VitisAI runtime does not recognize that overlay. The Phoenix `4x4.xclbin` AMD expects is not in the driver folder and was not installed.
 
 The Phi-4-Multimodal ONNX files from Microsoft (`gpu/gpu-int4-rtn-block-32`) are generic builds. Their `genai_config.json` has an empty `provider_options`, so they load on CPU. Pointing them at the VitisAI execution provider initializes the provider, then the process exits without output because the model was never compiled for the NPU.
 
